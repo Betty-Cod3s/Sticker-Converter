@@ -404,227 +404,249 @@
     <!-- Libraries -->
     <script src="https://cdn.jsdelivr.net/npm/pica@9/dist/pica.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/file-saver@2/dist/FileSaver.min.js"></script>
+    
     <script type="module">
+        // Import background removal
         import imglyRemoveBackground from 'https://cdn.jsdelivr.net/npm/@imgly/background-removal@1.4.5/+esm';
+        
+        // Make it globally available
+        window.removeBackground = imglyRemoveBackground;
+    </script>
 
-        // Global variables
-        let originalImage = null;
-        let processedBlob = null;
-        let originalFileName = '';
-        const pica = window.pica();
-
-        // DOM elements
-        const uploadZone = document.getElementById('uploadZone');
-        const fileInput = document.getElementById('fileInput');
-        const previewSection = document.getElementById('previewSection');
-        const preview = document.getElementById('preview');
-        const sizeValue = document.getElementById('sizeValue');
-        const dpiSelect = document.getElementById('dpi');
-        const formatSelect = document.getElementById('format');
-        const qualitySlider = document.getElementById('quality');
-        const qualityValue = document.getElementById('qualityValue');
-        const addBleedCheck = document.getElementById('addBleed');
-        const finalDimensions = document.getElementById('finalDimensions');
-        const pixelDimensions = document.getElementById('pixelDimensions');
-        const downloadBtn = document.getElementById('downloadBtn');
-        const resetBtn = document.getElementById('resetBtn');
-        const progressContainer = document.getElementById('progressContainer');
-        const progressFill = document.getElementById('progressFill');
-        const progressText = document.getElementById('progressText');
-        const loadingNote = document.getElementById('loadingNote');
-
-        // Upload zone click
-        uploadZone.addEventListener('click', () => fileInput.click());
-
-        // Drag and drop
-        uploadZone.addEventListener('dragover', (e) => {
-            e.preventDefault();
-            uploadZone.classList.add('dragover');
-        });
-
-        uploadZone.addEventListener('dragleave', () => {
-            uploadZone.classList.remove('dragover');
-        });
-
-        uploadZone.addEventListener('drop', (e) => {
-            e.preventDefault();
-            uploadZone.classList.remove('dragover');
-            const file = e.dataTransfer.files[0];
-            if (file && file.type.startsWith('image/')) {
-                handleFile(file);
-            }
-        });
-
-        // File input change
-        fileInput.addEventListener('change', (e) => {
-            const file = e.target.files[0];
-            if (file) handleFile(file);
-        });
-
-        // Handle file upload and background removal
-        async function handleFile(file) {
-            originalFileName = file.name.split('.')[0];
-            
-            // Show progress
-            progressContainer.classList.add('active');
-            loadingNote.classList.add('active');
-            progressFill.style.width = '10%';
-            progressText.textContent = 'Loading AI model...';
-
-            try {
-                // Remove background
-                progressFill.style.width = '30%';
-                progressText.textContent = 'Analyzing image...';
-                
-                const blob = await imglyRemoveBackground(file, {
-                    progress: (key, current, total) => {
-                        const percent = 30 + (current / total * 50);
-                        progressFill.style.width = percent + '%';
-                        progressText.textContent = `Removing background... ${Math.round(percent)}%`;
+    <script>
+        // Wait for background removal library to load
+        function waitForBackgroundRemoval() {
+            return new Promise((resolve) => {
+                const checkInterval = setInterval(() => {
+                    if (window.removeBackground) {
+                        clearInterval(checkInterval);
+                        resolve();
                     }
-                });
+                }, 100);
+            });
+        }
 
-                processedBlob = blob;
-                
-                progressFill.style.width = '100%';
-                progressText.textContent = 'Complete! ✅';
+        // Initialize app after library loads
+        waitForBackgroundRemoval().then(() => {
+            // Global variables
+            let originalImage = null;
+            let processedBlob = null;
+            let originalFileName = '';
+            const pica = window.pica();
 
-                // Load processed image
-                const img = new Image();
-                const url = URL.createObjectURL(blob);
+            // DOM elements
+            const uploadZone = document.getElementById('uploadZone');
+            const fileInput = document.getElementById('fileInput');
+            const previewSection = document.getElementById('previewSection');
+            const preview = document.getElementById('preview');
+            const sizeValue = document.getElementById('sizeValue');
+            const dpiSelect = document.getElementById('dpi');
+            const formatSelect = document.getElementById('format');
+            const qualitySlider = document.getElementById('quality');
+            const qualityValue = document.getElementById('qualityValue');
+            const addBleedCheck = document.getElementById('addBleed');
+            const finalDimensions = document.getElementById('finalDimensions');
+            const pixelDimensions = document.getElementById('pixelDimensions');
+            const downloadBtn = document.getElementById('downloadBtn');
+            const resetBtn = document.getElementById('resetBtn');
+            const progressContainer = document.getElementById('progressContainer');
+            const progressFill = document.getElementById('progressFill');
+            const progressText = document.getElementById('progressText');
+            const loadingNote = document.getElementById('loadingNote');
+
+            // Upload zone click
+            uploadZone.addEventListener('click', () => fileInput.click());
+
+            // Drag and drop
+            uploadZone.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                uploadZone.classList.add('dragover');
+            });
+
+            uploadZone.addEventListener('dragleave', () => {
+                uploadZone.classList.remove('dragover');
+            });
+
+            uploadZone.addEventListener('drop', (e) => {
+                e.preventDefault();
+                uploadZone.classList.remove('dragover');
+                const file = e.dataTransfer.files[0];
+                if (file && file.type.startsWith('image/')) {
+                    handleFile(file);
+                }
+            });
+
+            // File input change
+            fileInput.addEventListener('change', (e) => {
+                const file = e.target.files[0];
+                if (file) handleFile(file);
+            });
+
+            // Handle file upload and background removal
+            async function handleFile(file) {
+                originalFileName = file.name.split('.')[0];
                 
-                img.onload = () => {
-                    originalImage = img;
-                    preview.src = url;
-                    previewSection.classList.add('active');
+                // Show progress
+                progressContainer.classList.add('active');
+                loadingNote.classList.add('active');
+                progressFill.style.width = '10%';
+                progressText.textContent = 'Loading AI model...';
+
+                try {
+                    // Remove background
+                    progressFill.style.width = '30%';
+                    progressText.textContent = 'Analyzing image...';
+                    
+                    const blob = await window.removeBackground(file, {
+                        progress: (key, current, total) => {
+                            const percent = 30 + (current / total * 50);
+                            progressFill.style.width = percent + '%';
+                            progressText.textContent = `Removing background... ${Math.round(percent)}%`;
+                        }
+                    });
+
+                    processedBlob = blob;
+                    
+                    progressFill.style.width = '100%';
+                    progressText.textContent = 'Complete! ✅';
+
+                    // Load processed image
+                    const img = new Image();
+                    const url = URL.createObjectURL(blob);
+                    
+                    img.onload = () => {
+                        originalImage = img;
+                        preview.src = url;
+                        previewSection.classList.add('active');
+                        progressContainer.classList.remove('active');
+                        loadingNote.classList.remove('active');
+                        updateDimensions();
+                    };
+                    
+                    img.src = url;
+
+                } catch (error) {
+                    console.error('Background removal error:', error);
                     progressContainer.classList.remove('active');
                     loadingNote.classList.remove('active');
-                    updateDimensions();
-                };
-                
-                img.src = url;
-
-            } catch (error) {
-                console.error('Background removal error:', error);
-                progressContainer.classList.remove('active');
-                loadingNote.classList.remove('active');
-                alert('Error removing background. Please try a different image or check your internet connection (needed for first-time AI model download).');
+                    alert('Error removing background. Please try a different image or check your internet connection (needed for first-time AI model download).');
+                }
             }
-        }
 
-        // Quality slider update
-        qualitySlider.addEventListener('input', (e) => {
-            qualityValue.textContent = e.target.value;
-        });
+            // Quality slider update
+            qualitySlider.addEventListener('input', (e) => {
+                qualityValue.textContent = e.target.value;
+            });
 
-        // Update dimensions when settings change
-        [sizeValue, dpiSelect, addBleedCheck].forEach(el => {
-            el.addEventListener('change', updateDimensions);
-            el.addEventListener('input', updateDimensions);
-        });
+            // Update dimensions when settings change
+            [sizeValue, dpiSelect, addBleedCheck].forEach(el => {
+                el.addEventListener('change', updateDimensions);
+                el.addEventListener('input', updateDimensions);
+            });
 
-        function updateDimensions() {
-            if (!originalImage) return;
+            function updateDimensions() {
+                if (!originalImage) return;
 
-            const heightInches = parseFloat(sizeValue.value) || 6;
-            const dpi = parseInt(dpiSelect.value) || 300;
-            const bleed = addBleedCheck.checked ? 0.125 : 0;
-
-            // Calculate dimensions maintaining aspect ratio
-            const aspectRatio = originalImage.width / originalImage.height;
-            const finalHeight = heightInches + (bleed * 2);
-            const finalWidth = finalHeight * aspectRatio;
-
-            // Pixel dimensions
-            const heightPx = Math.round(finalHeight * dpi);
-            const widthPx = Math.round(finalWidth * dpi);
-
-            finalDimensions.textContent = `${finalWidth.toFixed(2)}" × ${finalHeight.toFixed(2)}"`;
-            pixelDimensions.textContent = `${widthPx} × ${heightPx} pixels @ ${dpi} DPI`;
-        }
-
-        // Download button
-        downloadBtn.addEventListener('click', async () => {
-            if (!originalImage) return;
-
-            downloadBtn.disabled = true;
-            downloadBtn.textContent = '⏳ Processing...';
-
-            try {
                 const heightInches = parseFloat(sizeValue.value) || 6;
                 const dpi = parseInt(dpiSelect.value) || 300;
                 const bleed = addBleedCheck.checked ? 0.125 : 0;
-                const format = formatSelect.value;
-                const quality = parseInt(qualitySlider.value) / 100;
 
-                // Calculate final dimensions
+                // Calculate dimensions maintaining aspect ratio
                 const aspectRatio = originalImage.width / originalImage.height;
                 const finalHeight = heightInches + (bleed * 2);
                 const finalWidth = finalHeight * aspectRatio;
+
+                // Pixel dimensions
                 const heightPx = Math.round(finalHeight * dpi);
                 const widthPx = Math.round(finalWidth * dpi);
 
-                // Create source canvas from processed image (with transparency)
-                const sourceCanvas = document.createElement('canvas');
-                sourceCanvas.width = originalImage.width;
-                sourceCanvas.height = originalImage.height;
-                const sourceCtx = sourceCanvas.getContext('2d', { alpha: true });
-                sourceCtx.clearRect(0, 0, sourceCanvas.width, sourceCanvas.height);
-                sourceCtx.drawImage(originalImage, 0, 0);
+                finalDimensions.textContent = `${finalWidth.toFixed(2)}" × ${finalHeight.toFixed(2)}"`;
+                pixelDimensions.textContent = `${widthPx} × ${heightPx} pixels @ ${dpi} DPI`;
+            }
 
-                // Create target canvas
-                const canvas = document.createElement('canvas');
-                canvas.width = widthPx;
-                canvas.height = heightPx;
-                const ctx = canvas.getContext('2d', { alpha: true });
-                
-                // For PNG: keep transparent. For JPG: white background
-                if (format === 'jpg') {
-                    ctx.fillStyle = 'white';
-                    ctx.fillRect(0, 0, widthPx, heightPx);
-                } else {
-                    ctx.clearRect(0, 0, widthPx, heightPx);
-                }
+            // Download button
+            downloadBtn.addEventListener('click', async () => {
+                if (!originalImage) return;
 
-                // Resize with pica
-                await pica.resize(sourceCanvas, canvas, {
-                    quality: 3,
-                    alpha: format === 'png',
-                    unsharpAmount: 80,
-                    unsharpRadius: 0.6,
-                    unsharpThreshold: 2
-                });
+                downloadBtn.disabled = true;
+                downloadBtn.textContent = '⏳ Processing...';
 
-                // Convert to blob
-                const mimeType = format === 'png' ? 'image/png' : 'image/jpeg';
-                const blob = await new Promise(resolve => 
-                    canvas.toBlob(resolve, mimeType, quality)
-                );
+                try {
+                    const heightInches = parseFloat(sizeValue.value) || 6;
+                    const dpi = parseInt(dpiSelect.value) || 300;
+                    const bleed = addBleedCheck.checked ? 0.125 : 0;
+                    const format = formatSelect.value;
+                    const quality = parseInt(qualitySlider.value) / 100;
 
-                const fileName = `${originalFileName}_${finalWidth.toFixed(1)}x${finalHeight.toFixed(1)}in_${dpi}dpi_nobg.${format}`;
-                saveAs(blob, fileName);
+                    // Calculate final dimensions
+                    const aspectRatio = originalImage.width / originalImage.height;
+                    const finalHeight = heightInches + (bleed * 2);
+                    const finalWidth = finalHeight * aspectRatio;
+                    const heightPx = Math.round(finalHeight * dpi);
+                    const widthPx = Math.round(finalWidth * dpi);
 
-                downloadBtn.textContent = '✅ Downloaded!';
-                setTimeout(() => {
+                    // Create source canvas from processed image (with transparency)
+                    const sourceCanvas = document.createElement('canvas');
+                    sourceCanvas.width = originalImage.width;
+                    sourceCanvas.height = originalImage.height;
+                    const sourceCtx = sourceCanvas.getContext('2d', { alpha: true });
+                    sourceCtx.clearRect(0, 0, sourceCanvas.width, sourceCanvas.height);
+                    sourceCtx.drawImage(originalImage, 0, 0);
+
+                    // Create target canvas
+                    const canvas = document.createElement('canvas');
+                    canvas.width = widthPx;
+                    canvas.height = heightPx;
+                    const ctx = canvas.getContext('2d', { alpha: true });
+                    
+                    // For PNG: keep transparent. For JPG: white background
+                    if (format === 'jpg') {
+                        ctx.fillStyle = 'white';
+                        ctx.fillRect(0, 0, widthPx, heightPx);
+                    } else {
+                        ctx.clearRect(0, 0, widthPx, heightPx);
+                    }
+
+                    // Resize with pica
+                    await pica.resize(sourceCanvas, canvas, {
+                        quality: 3,
+                        alpha: format === 'png',
+                        unsharpAmount: 80,
+                        unsharpRadius: 0.6,
+                        unsharpThreshold: 2
+                    });
+
+                    // Convert to blob
+                    const mimeType = format === 'png' ? 'image/png' : 'image/jpeg';
+                    const blob = await new Promise(resolve => 
+                        canvas.toBlob(resolve, mimeType, quality)
+                    );
+
+                    const fileName = `${originalFileName}_${finalWidth.toFixed(1)}x${finalHeight.toFixed(1)}in_${dpi}dpi_nobg.${format}`;
+                    saveAs(blob, fileName);
+
+                    downloadBtn.textContent = '✅ Downloaded!';
+                    setTimeout(() => {
+                        downloadBtn.textContent = '⬇️ Download Sticker File';
+                        downloadBtn.disabled = false;
+                    }, 2000);
+
+                } catch (error) {
+                    console.error('Error processing image:', error);
+                    alert('Error processing image. Please try again.');
                     downloadBtn.textContent = '⬇️ Download Sticker File';
                     downloadBtn.disabled = false;
-                }, 2000);
+                }
+            });
 
-            } catch (error) {
-                console.error('Error processing image:', error);
-                alert('Error processing image. Please try again.');
-                downloadBtn.textContent = '⬇️ Download Sticker File';
-                downloadBtn.disabled = false;
-            }
-        });
-
-        // Reset button
-        resetBtn.addEventListener('click', () => {
-            originalImage = null;
-            processedBlob = null;
-            previewSection.classList.remove('active');
-            fileInput.value = '';
-            progressFill.style.width = '0%';
+            // Reset button
+            resetBtn.addEventListener('click', () => {
+                originalImage = null;
+                processedBlob = null;
+                previewSection.classList.remove('active');
+                fileInput.value = '';
+                progressFill.style.width = '0%';
+            });
         });
     </script>
 </body>
