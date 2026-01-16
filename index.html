@@ -341,7 +341,7 @@
     <script src="https://cdn.jsdelivr.net/npm/pica@9/dist/pica.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/file-saver@2/dist/FileSaver.min.js"></script>
 
-    <!-- Main App Script -->
+   <!-- Main App Script -->
     <script>
         // Global variables
         let originalImage = null;
@@ -463,15 +463,29 @@
                 const heightPx = Math.round(finalHeight * dpi);
                 const widthPx = Math.round(finalWidth * dpi);
 
-                // Create canvas
+                // Create source canvas from original image
+                const sourceCanvas = document.createElement('canvas');
+                sourceCanvas.width = originalImage.width;
+                sourceCanvas.height = originalImage.height;
+                const sourceCtx = sourceCanvas.getContext('2d', { alpha: true });
+                sourceCtx.drawImage(originalImage, 0, 0);
+
+                // Create target canvas with proper alpha channel
                 const canvas = document.createElement('canvas');
                 canvas.width = widthPx;
                 canvas.height = heightPx;
+                const ctx = canvas.getContext('2d', { alpha: true });
+                
+                // Clear canvas to transparent (critical for PNG transparency)
+                ctx.clearRect(0, 0, widthPx, heightPx);
 
-                // Resize image with pica (high quality)
-                await pica.resize(originalImage, canvas, {
+                // Resize image with pica (high quality, preserves alpha)
+                await pica.resize(sourceCanvas, canvas, {
                     quality: 3,
-                    alpha: true
+                    alpha: true,
+                    unsharpAmount: 80,
+                    unsharpRadius: 0.6,
+                    unsharpThreshold: 2
                 });
 
                 // Convert to blob and download
