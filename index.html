@@ -98,8 +98,11 @@
             text-align: center;
             margin-bottom: 20px;
             padding: 20px;
-            background: #f8f9ff;
+            background: 
+                repeating-conic-gradient(#e0e0e0 0% 25%, white 0% 50%) 
+                50% / 20px 20px;
             border-radius: 10px;
+            position: relative;
         }
 
         #preview {
@@ -238,6 +241,56 @@
             color: #666;
         }
 
+        .progress-container {
+            display: none;
+            background: #f0f2ff;
+            padding: 20px;
+            border-radius: 10px;
+            margin-top: 20px;
+            text-align: center;
+        }
+
+        .progress-container.active {
+            display: block;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background: #e0e0e0;
+            border-radius: 10px;
+            overflow: hidden;
+            margin: 15px 0;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+
+        .progress-text {
+            color: #667eea;
+            font-weight: 600;
+            font-size: 14px;
+        }
+
+        .loading-note {
+            background: #e8f4fd;
+            border-left: 4px solid #2196f3;
+            padding: 15px;
+            margin-top: 20px;
+            border-radius: 5px;
+            font-size: 13px;
+            color: #555;
+            display: none;
+        }
+
+        .loading-note.active {
+            display: block;
+        }
+
         @media (max-width: 600px) {
             .container {
                 padding: 20px;
@@ -256,7 +309,7 @@
 <body>
     <div class="container">
         <h1>🎨 Sticker File Converter</h1>
-        <p class="subtitle">Convert images to print-ready sticker files in seconds</p>
+        <p class="subtitle">Convert images to print-ready sticker files with automatic background removal</p>
 
         <!-- Upload Zone -->
         <div class="upload-zone" id="uploadZone">
@@ -264,6 +317,19 @@
             <div class="upload-text">Drop image here or click to browse</div>
             <div class="upload-hint">Supports JPG, PNG, WEBP, GIF</div>
             <input type="file" id="fileInput" accept="image/*">
+        </div>
+
+        <!-- Loading Note -->
+        <div class="loading-note" id="loadingNote">
+            ⏳ <strong>First-time setup:</strong> Loading AI background removal model (this happens once, ~50MB download). Future uses will be instant!
+        </div>
+
+        <!-- Progress Bar -->
+        <div class="progress-container" id="progressContainer">
+            <div class="progress-text" id="progressText">Removing background...</div>
+            <div class="progress-bar">
+                <div class="progress-fill" id="progressFill"></div>
+            </div>
         </div>
 
         <!-- Preview & Settings -->
@@ -285,7 +351,6 @@
                         <option value="300">300 DPI (Standard)</option>
                         <option value="600">600 DPI (Premium)</option>
                         <option value="150">150 DPI (Draft)</option>
-                        <option value="custom">Custom...</option>
                     </select>
                 </div>
 
@@ -294,16 +359,15 @@
                     <label for="format">Output Format</label>
                     <select id="format">
                         <option value="png">PNG (Transparent)</option>
-                        <option value="tiff">TIFF (Print)</option>
-                        <option value="jpg">JPG (Compressed)</option>
+                        <option value="jpg">JPG (White Background)</option>
                     </select>
                 </div>
 
                 <!-- Quality Slider -->
                 <div class="setting-group">
                     <label for="quality">Quality</label>
-                    <input type="range" id="quality" min="1" max="100" value="90">
-                    <div class="slider-value"><span id="qualityValue">90</span>%</div>
+                    <input type="range" id="quality" min="1" max="100" value="95">
+                    <div class="slider-value"><span id="qualityValue">95</span>%</div>
                 </div>
 
                 <!-- Bleed Option -->
@@ -333,18 +397,19 @@
         </div>
 
         <div class="info-box">
-            💡 <strong>Pro Tip:</strong> For best results, use high-resolution source images. The app maintains aspect ratio automatically.
+            💡 <strong>Pro Tip:</strong> The AI automatically removes backgrounds. Works best with clear subject/background separation. Processing takes 10-30 seconds depending on image size.
         </div>
     </div>
 
     <!-- Libraries -->
     <script src="https://cdn.jsdelivr.net/npm/pica@9/dist/pica.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/file-saver@2/dist/FileSaver.min.js"></script>
+    <script type="module">
+        import imglyRemoveBackground from 'https://cdn.jsdelivr.net/npm/@imgly/background-removal@1.4.5/+esm';
 
-   <!-- Main App Script -->
-    <script>
         // Global variables
         let originalImage = null;
+        let processedBlob = null;
         let originalFileName = '';
         const pica = window.pica();
 
@@ -363,6 +428,10 @@
         const pixelDimensions = document.getElementById('pixelDimensions');
         const downloadBtn = document.getElementById('downloadBtn');
         const resetBtn = document.getElementById('resetBtn');
+        const progressContainer = document.getElementById('progressContainer');
+        const progressFill = document.getElementById('progressFill');
+        const progressText = document.getElementById('progressText');
+        const loadingNote = document.getElementById('loadingNote');
 
         // Upload zone click
         uploadZone.addEventListener('click', () => fileInput.click());
@@ -392,23 +461,55 @@
             if (file) handleFile(file);
         });
 
-        // Handle file upload
-        function handleFile(file) {
+        // Handle file upload and background removal
+        async function handleFile(file) {
             originalFileName = file.name.split('.')[0];
-            const reader = new FileReader();
             
-            reader.onload = (e) => {
+            // Show progress
+            progressContainer.classList.add('active');
+            loadingNote.classList.add('active');
+            progressFill.style.width = '10%';
+            progressText.textContent = 'Loading AI model...';
+
+            try {
+                // Remove background
+                progressFill.style.width = '30%';
+                progressText.textContent = 'Analyzing image...';
+                
+                const blob = await imglyRemoveBackground(file, {
+                    progress: (key, current, total) => {
+                        const percent = 30 + (current / total * 50);
+                        progressFill.style.width = percent + '%';
+                        progressText.textContent = `Removing background... ${Math.round(percent)}%`;
+                    }
+                });
+
+                processedBlob = blob;
+                
+                progressFill.style.width = '100%';
+                progressText.textContent = 'Complete! ✅';
+
+                // Load processed image
                 const img = new Image();
+                const url = URL.createObjectURL(blob);
+                
                 img.onload = () => {
                     originalImage = img;
-                    preview.src = e.target.result;
+                    preview.src = url;
                     previewSection.classList.add('active');
+                    progressContainer.classList.remove('active');
+                    loadingNote.classList.remove('active');
                     updateDimensions();
                 };
-                img.src = e.target.result;
-            };
-            
-            reader.readAsDataURL(file);
+                
+                img.src = url;
+
+            } catch (error) {
+                console.error('Background removal error:', error);
+                progressContainer.classList.remove('active');
+                loadingNote.classList.remove('active');
+                alert('Error removing background. Please try a different image or check your internet connection (needed for first-time AI model download).');
+            }
         }
 
         // Quality slider update
@@ -463,38 +564,44 @@
                 const heightPx = Math.round(finalHeight * dpi);
                 const widthPx = Math.round(finalWidth * dpi);
 
-                // Create source canvas from original image
+                // Create source canvas from processed image (with transparency)
                 const sourceCanvas = document.createElement('canvas');
                 sourceCanvas.width = originalImage.width;
                 sourceCanvas.height = originalImage.height;
                 const sourceCtx = sourceCanvas.getContext('2d', { alpha: true });
+                sourceCtx.clearRect(0, 0, sourceCanvas.width, sourceCanvas.height);
                 sourceCtx.drawImage(originalImage, 0, 0);
 
-                // Create target canvas with proper alpha channel
+                // Create target canvas
                 const canvas = document.createElement('canvas');
                 canvas.width = widthPx;
                 canvas.height = heightPx;
                 const ctx = canvas.getContext('2d', { alpha: true });
                 
-                // Clear canvas to transparent (critical for PNG transparency)
-                ctx.clearRect(0, 0, widthPx, heightPx);
+                // For PNG: keep transparent. For JPG: white background
+                if (format === 'jpg') {
+                    ctx.fillStyle = 'white';
+                    ctx.fillRect(0, 0, widthPx, heightPx);
+                } else {
+                    ctx.clearRect(0, 0, widthPx, heightPx);
+                }
 
-                // Resize image with pica (high quality, preserves alpha)
+                // Resize with pica
                 await pica.resize(sourceCanvas, canvas, {
                     quality: 3,
-                    alpha: true,
+                    alpha: format === 'png',
                     unsharpAmount: 80,
                     unsharpRadius: 0.6,
                     unsharpThreshold: 2
                 });
 
-                // Convert to blob and download
-                const mimeType = format === 'png' ? 'image/png' : format === 'jpg' ? 'image/jpeg' : 'image/png';
+                // Convert to blob
+                const mimeType = format === 'png' ? 'image/png' : 'image/jpeg';
                 const blob = await new Promise(resolve => 
                     canvas.toBlob(resolve, mimeType, quality)
                 );
 
-                const fileName = `${originalFileName}_${finalWidth.toFixed(1)}x${finalHeight.toFixed(1)}in_${dpi}dpi.${format}`;
+                const fileName = `${originalFileName}_${finalWidth.toFixed(1)}x${finalHeight.toFixed(1)}in_${dpi}dpi_nobg.${format}`;
                 saveAs(blob, fileName);
 
                 downloadBtn.textContent = '✅ Downloaded!';
@@ -514,8 +621,10 @@
         // Reset button
         resetBtn.addEventListener('click', () => {
             originalImage = null;
+            processedBlob = null;
             previewSection.classList.remove('active');
             fileInput.value = '';
+            progressFill.style.width = '0%';
         });
     </script>
 </body>
