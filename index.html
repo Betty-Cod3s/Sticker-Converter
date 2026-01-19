@@ -64,6 +64,11 @@
             transform: scale(1.02);
         }
 
+        .upload-zone.disabled {
+            opacity: 0.6;
+            cursor: wait;
+        }
+
         .upload-icon {
             font-size: 48px;
             margin-bottom: 10px;
@@ -241,6 +246,21 @@
             color: #666;
         }
 
+        .error-box {
+            background: #ffe6e6;
+            border-left: 4px solid #ff4444;
+            padding: 15px;
+            margin-top: 20px;
+            border-radius: 5px;
+            font-size: 14px;
+            color: #cc0000;
+            display: none;
+        }
+
+        .error-box.active {
+            display: block;
+        }
+
         .progress-container {
             display: none;
             background: #f0f2ff;
@@ -291,6 +311,25 @@
             display: block;
         }
 
+        .lib-status {
+            font-size: 12px;
+            color: #999;
+            text-align: center;
+            margin-top: 10px;
+        }
+
+        .lib-status.ready {
+            color: #22c55e;
+        }
+
+        .lib-status.loading {
+            color: #f59e0b;
+        }
+
+        .lib-status.error {
+            color: #ef4444;
+        }
+
         @media (max-width: 600px) {
             .container {
                 padding: 20px;
@@ -312,12 +351,18 @@
         <p class="subtitle">Convert images to print-ready sticker files with automatic background removal</p>
 
         <!-- Upload Zone -->
-        <div class="upload-zone" id="uploadZone">
+        <div class="upload-zone disabled" id="uploadZone">
             <div class="upload-icon">📁</div>
             <div class="upload-text">Drop image here or click to browse</div>
             <div class="upload-hint">Supports JPG, PNG, WEBP, GIF</div>
             <input type="file" id="fileInput" accept="image/*">
         </div>
+
+        <!-- Library Status -->
+        <div class="lib-status loading" id="libStatus">⏳ Loading AI background removal library...</div>
+
+        <!-- Error Box -->
+        <div class="error-box" id="errorBox"></div>
 
         <!-- Loading Note -->
         <div class="loading-note" id="loadingNote">
@@ -405,248 +450,330 @@
     <script src="https://cdn.jsdelivr.net/npm/pica@9/dist/pica.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/file-saver@2/dist/FileSaver.min.js"></script>
     
-    <script type="module">
-        // Import background removal
-        import imglyRemoveBackground from 'https://cdn.jsdelivr.net/npm/@imgly/background-removal@1.4.5/+esm';
-        
-        // Make it globally available
-        window.removeBackground = imglyRemoveBackground;
-    </script>
+    <!-- Use the UMD build of background-removal instead of ESM -->
+    <script src="https://unpkg.com/@imgly/background-removal@1.4.5/dist/index.umd.js"></script>
 
     <script>
-        // Wait for background removal library to load
-        function waitForBackgroundRemoval() {
-            return new Promise((resolve) => {
-                const checkInterval = setInterval(() => {
-                    if (window.removeBackground) {
-                        clearInterval(checkInterval);
-                        resolve();
-                    }
-                }, 100);
-            });
+        // Global variables
+        let originalImage = null;
+        let processedBlob = null;
+        let originalFileName = '';
+        let pica = null;
+        let libraryReady = false;
+        let removeBackground = null;
+
+        // DOM elements
+        const uploadZone = document.getElementById('uploadZone');
+        const fileInput = document.getElementById('fileInput');
+        const previewSection = document.getElementById('previewSection');
+        const preview = document.getElementById('preview');
+        const sizeValue = document.getElementById('sizeValue');
+        const dpiSelect = document.getElementById('dpi');
+        const formatSelect = document.getElementById('format');
+        const qualitySlider = document.getElementById('quality');
+        const qualityValue = document.getElementById('qualityValue');
+        const addBleedCheck = document.getElementById('addBleed');
+        const finalDimensions = document.getElementById('finalDimensions');
+        const pixelDimensions = document.getElementById('pixelDimensions');
+        const downloadBtn = document.getElementById('downloadBtn');
+        const resetBtn = document.getElementById('resetBtn');
+        const progressContainer = document.getElementById('progressContainer');
+        const progressFill = document.getElementById('progressFill');
+        const progressText = document.getElementById('progressText');
+        const loadingNote = document.getElementById('loadingNote');
+        const libStatus = document.getElementById('libStatus');
+        const errorBox = document.getElementById('errorBox');
+
+        // Initialize
+        function init() {
+            console.log('Initializing...');
+            
+            try {
+                // Check for pica
+                if (typeof window.pica === 'function') {
+                    pica = window.pica();
+                    console.log('Pica loaded');
+                } else {
+                    throw new Error('Pica library not loaded');
+                }
+
+                // Check for background removal - the UMD build exposes it as imglyRemoveBackground
+                if (typeof window.imglyRemoveBackground === 'function') {
+                    removeBackground = window.imglyRemoveBackground;
+                    console.log('Background removal library loaded');
+                } else {
+                    throw new Error('Background removal library not loaded');
+                }
+
+                // Check for FileSaver
+                if (typeof window.saveAs !== 'function') {
+                    throw new Error('FileSaver library not loaded');
+                }
+
+                libraryReady = true;
+                libStatus.textContent = '✅ AI library ready';
+                libStatus.className = 'lib-status ready';
+                uploadZone.classList.remove('disabled');
+                console.log('All libraries loaded successfully');
+
+            } catch (error) {
+                console.error('Error initializing:', error);
+                libStatus.textContent = '❌ Error loading libraries: ' + error.message;
+                libStatus.className = 'lib-status error';
+                showError('Error loading libraries. Please refresh the page. Details: ' + error.message);
+            }
         }
 
-        // Initialize app after library loads
-        waitForBackgroundRemoval().then(() => {
-            // Global variables
-            let originalImage = null;
-            let processedBlob = null;
-            let originalFileName = '';
-            const pica = window.pica();
+        function showError(message) {
+            errorBox.textContent = '❌ ' + message;
+            errorBox.classList.add('active');
+            setTimeout(() => errorBox.classList.remove('active'), 10000);
+        }
 
-            // DOM elements
-            const uploadZone = document.getElementById('uploadZone');
-            const fileInput = document.getElementById('fileInput');
-            const previewSection = document.getElementById('previewSection');
-            const preview = document.getElementById('preview');
-            const sizeValue = document.getElementById('sizeValue');
-            const dpiSelect = document.getElementById('dpi');
-            const formatSelect = document.getElementById('format');
-            const qualitySlider = document.getElementById('quality');
-            const qualityValue = document.getElementById('qualityValue');
-            const addBleedCheck = document.getElementById('addBleed');
-            const finalDimensions = document.getElementById('finalDimensions');
-            const pixelDimensions = document.getElementById('pixelDimensions');
-            const downloadBtn = document.getElementById('downloadBtn');
-            const resetBtn = document.getElementById('resetBtn');
-            const progressContainer = document.getElementById('progressContainer');
-            const progressFill = document.getElementById('progressFill');
-            const progressText = document.getElementById('progressText');
-            const loadingNote = document.getElementById('loadingNote');
+        // Upload zone click
+        uploadZone.addEventListener('click', (e) => {
+            if (!libraryReady) {
+                showError('Please wait for the AI library to finish loading.');
+                return;
+            }
+            fileInput.click();
+        });
 
-            // Upload zone click
-            uploadZone.addEventListener('click', () => fileInput.click());
-
-            // Drag and drop
-            uploadZone.addEventListener('dragover', (e) => {
-                e.preventDefault();
+        // Drag and drop
+        uploadZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            if (libraryReady) {
                 uploadZone.classList.add('dragover');
-            });
+            }
+        });
 
-            uploadZone.addEventListener('dragleave', () => {
-                uploadZone.classList.remove('dragover');
-            });
+        uploadZone.addEventListener('dragleave', () => {
+            uploadZone.classList.remove('dragover');
+        });
 
-            uploadZone.addEventListener('drop', (e) => {
-                e.preventDefault();
-                uploadZone.classList.remove('dragover');
-                const file = e.dataTransfer.files[0];
-                if (file && file.type.startsWith('image/')) {
-                    handleFile(file);
-                }
-            });
+        uploadZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadZone.classList.remove('dragover');
+            
+            if (!libraryReady) {
+                showError('Please wait for the AI library to finish loading.');
+                return;
+            }
+            
+            const file = e.dataTransfer.files[0];
+            if (file && file.type.startsWith('image/')) {
+                handleFile(file);
+            } else {
+                showError('Please upload a valid image file (JPG, PNG, WEBP, or GIF).');
+            }
+        });
 
-            // File input change
-            fileInput.addEventListener('change', (e) => {
-                const file = e.target.files[0];
-                if (file) handleFile(file);
-            });
+        // File input change
+        fileInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                console.log('File selected:', file.name, file.type, file.size);
+                handleFile(file);
+            }
+        });
 
-            // Handle file upload and background removal
-            async function handleFile(file) {
-                originalFileName = file.name.split('.')[0];
-                
-                // Show progress
-                progressContainer.classList.add('active');
-                loadingNote.classList.add('active');
-                progressFill.style.width = '10%';
-                progressText.textContent = 'Loading AI model...';
-
-                try {
-                    // Remove background
-                    progressFill.style.width = '30%';
-                    progressText.textContent = 'Analyzing image...';
-                    
-                    const blob = await window.removeBackground(file, {
-                        progress: (key, current, total) => {
-                            const percent = 30 + (current / total * 50);
-                            progressFill.style.width = percent + '%';
-                            progressText.textContent = `Removing background... ${Math.round(percent)}%`;
-                        }
-                    });
-
-                    processedBlob = blob;
-                    
-                    progressFill.style.width = '100%';
-                    progressText.textContent = 'Complete! ✅';
-
-                    // Load processed image
-                    const img = new Image();
-                    const url = URL.createObjectURL(blob);
-                    
-                    img.onload = () => {
-                        originalImage = img;
-                        preview.src = url;
-                        previewSection.classList.add('active');
-                        progressContainer.classList.remove('active');
-                        loadingNote.classList.remove('active');
-                        updateDimensions();
-                    };
-                    
-                    img.src = url;
-
-                } catch (error) {
-                    console.error('Background removal error:', error);
-                    progressContainer.classList.remove('active');
-                    loadingNote.classList.remove('active');
-                    alert('Error removing background. Please try a different image or check your internet connection (needed for first-time AI model download).');
-                }
+        // Handle file upload and background removal
+        async function handleFile(file) {
+            console.log('handleFile called with:', file.name);
+            
+            if (!file.type.startsWith('image/')) {
+                showError('Please upload a valid image file.');
+                return;
             }
 
-            // Quality slider update
-            qualitySlider.addEventListener('input', (e) => {
-                qualityValue.textContent = e.target.value;
-            });
+            originalFileName = file.name.split('.')[0];
+            
+            // Show progress
+            progressContainer.classList.add('active');
+            loadingNote.classList.add('active');
+            uploadZone.classList.add('disabled');
+            progressFill.style.width = '10%';
+            progressText.textContent = 'Loading AI model...';
 
-            // Update dimensions when settings change
-            [sizeValue, dpiSelect, addBleedCheck].forEach(el => {
-                el.addEventListener('change', updateDimensions);
-                el.addEventListener('input', updateDimensions);
-            });
+            try {
+                // Remove background
+                progressFill.style.width = '30%';
+                progressText.textContent = 'Analyzing image...';
+                
+                console.log('Starting background removal...');
+                
+                const blob = await removeBackground(file, {
+                    progress: (key, current, total) => {
+                        const percent = 30 + (current / total * 50);
+                        progressFill.style.width = percent + '%';
+                        progressText.textContent = `Removing background... ${Math.round(percent)}%`;
+                        console.log('Progress:', key, current, total);
+                    }
+                });
 
-            function updateDimensions() {
-                if (!originalImage) return;
+                console.log('Background removal complete, blob size:', blob.size);
+                processedBlob = blob;
+                
+                progressFill.style.width = '100%';
+                progressText.textContent = 'Complete! ✅';
 
+                // Load processed image
+                const img = new Image();
+                const url = URL.createObjectURL(blob);
+                
+                img.onload = () => {
+                    console.log('Processed image loaded:', img.width, 'x', img.height);
+                    originalImage = img;
+                    preview.src = url;
+                    previewSection.classList.add('active');
+                    progressContainer.classList.remove('active');
+                    loadingNote.classList.remove('active');
+                    uploadZone.classList.remove('disabled');
+                    updateDimensions();
+                };
+                
+                img.onerror = (e) => {
+                    console.error('Error loading processed image:', e);
+                    showError('Error loading processed image.');
+                    progressContainer.classList.remove('active');
+                    loadingNote.classList.remove('active');
+                    uploadZone.classList.remove('disabled');
+                };
+                
+                img.src = url;
+
+            } catch (error) {
+                console.error('Background removal error:', error);
+                progressContainer.classList.remove('active');
+                loadingNote.classList.remove('active');
+                uploadZone.classList.remove('disabled');
+                showError('Error removing background: ' + error.message + '. Please try a different image.');
+            }
+        }
+
+        // Quality slider update
+        qualitySlider.addEventListener('input', (e) => {
+            qualityValue.textContent = e.target.value;
+        });
+
+        // Update dimensions when settings change
+        [sizeValue, dpiSelect, addBleedCheck].forEach(el => {
+            el.addEventListener('change', updateDimensions);
+            el.addEventListener('input', updateDimensions);
+        });
+
+        function updateDimensions() {
+            if (!originalImage) return;
+
+            const heightInches = parseFloat(sizeValue.value) || 6;
+            const dpi = parseInt(dpiSelect.value) || 300;
+            const bleed = addBleedCheck.checked ? 0.125 : 0;
+
+            // Calculate dimensions maintaining aspect ratio
+            const aspectRatio = originalImage.width / originalImage.height;
+            const finalHeight = heightInches + (bleed * 2);
+            const finalWidth = finalHeight * aspectRatio;
+
+            // Pixel dimensions
+            const heightPx = Math.round(finalHeight * dpi);
+            const widthPx = Math.round(finalWidth * dpi);
+
+            finalDimensions.textContent = `${finalWidth.toFixed(2)}" × ${finalHeight.toFixed(2)}"`;
+            pixelDimensions.textContent = `${widthPx} × ${heightPx} pixels @ ${dpi} DPI`;
+        }
+
+        // Download button
+        downloadBtn.addEventListener('click', async () => {
+            if (!originalImage) {
+                showError('No image loaded. Please upload an image first.');
+                return;
+            }
+
+            downloadBtn.disabled = true;
+            downloadBtn.textContent = '⏳ Processing...';
+
+            try {
                 const heightInches = parseFloat(sizeValue.value) || 6;
                 const dpi = parseInt(dpiSelect.value) || 300;
                 const bleed = addBleedCheck.checked ? 0.125 : 0;
+                const format = formatSelect.value;
+                const quality = parseInt(qualitySlider.value) / 100;
 
-                // Calculate dimensions maintaining aspect ratio
+                // Calculate final dimensions
                 const aspectRatio = originalImage.width / originalImage.height;
                 const finalHeight = heightInches + (bleed * 2);
                 const finalWidth = finalHeight * aspectRatio;
-
-                // Pixel dimensions
                 const heightPx = Math.round(finalHeight * dpi);
                 const widthPx = Math.round(finalWidth * dpi);
 
-                finalDimensions.textContent = `${finalWidth.toFixed(2)}" × ${finalHeight.toFixed(2)}"`;
-                pixelDimensions.textContent = `${widthPx} × ${heightPx} pixels @ ${dpi} DPI`;
-            }
+                // Create source canvas from processed image (with transparency)
+                const sourceCanvas = document.createElement('canvas');
+                sourceCanvas.width = originalImage.width;
+                sourceCanvas.height = originalImage.height;
+                const sourceCtx = sourceCanvas.getContext('2d', { alpha: true });
+                sourceCtx.clearRect(0, 0, sourceCanvas.width, sourceCanvas.height);
+                sourceCtx.drawImage(originalImage, 0, 0);
 
-            // Download button
-            downloadBtn.addEventListener('click', async () => {
-                if (!originalImage) return;
+                // Create target canvas
+                const canvas = document.createElement('canvas');
+                canvas.width = widthPx;
+                canvas.height = heightPx;
+                const ctx = canvas.getContext('2d', { alpha: true });
+                
+                // For PNG: keep transparent. For JPG: white background
+                if (format === 'jpg') {
+                    ctx.fillStyle = 'white';
+                    ctx.fillRect(0, 0, widthPx, heightPx);
+                } else {
+                    ctx.clearRect(0, 0, widthPx, heightPx);
+                }
 
-                downloadBtn.disabled = true;
-                downloadBtn.textContent = '⏳ Processing...';
+                // Resize with pica
+                await pica.resize(sourceCanvas, canvas, {
+                    quality: 3,
+                    alpha: format === 'png',
+                    unsharpAmount: 80,
+                    unsharpRadius: 0.6,
+                    unsharpThreshold: 2
+                });
 
-                try {
-                    const heightInches = parseFloat(sizeValue.value) || 6;
-                    const dpi = parseInt(dpiSelect.value) || 300;
-                    const bleed = addBleedCheck.checked ? 0.125 : 0;
-                    const format = formatSelect.value;
-                    const quality = parseInt(qualitySlider.value) / 100;
+                // Convert to blob
+                const mimeType = format === 'png' ? 'image/png' : 'image/jpeg';
+                const blob = await new Promise(resolve => 
+                    canvas.toBlob(resolve, mimeType, quality)
+                );
 
-                    // Calculate final dimensions
-                    const aspectRatio = originalImage.width / originalImage.height;
-                    const finalHeight = heightInches + (bleed * 2);
-                    const finalWidth = finalHeight * aspectRatio;
-                    const heightPx = Math.round(finalHeight * dpi);
-                    const widthPx = Math.round(finalWidth * dpi);
+                const fileName = `${originalFileName}_${finalWidth.toFixed(1)}x${finalHeight.toFixed(1)}in_${dpi}dpi_nobg.${format}`;
+                saveAs(blob, fileName);
 
-                    // Create source canvas from processed image (with transparency)
-                    const sourceCanvas = document.createElement('canvas');
-                    sourceCanvas.width = originalImage.width;
-                    sourceCanvas.height = originalImage.height;
-                    const sourceCtx = sourceCanvas.getContext('2d', { alpha: true });
-                    sourceCtx.clearRect(0, 0, sourceCanvas.width, sourceCanvas.height);
-                    sourceCtx.drawImage(originalImage, 0, 0);
-
-                    // Create target canvas
-                    const canvas = document.createElement('canvas');
-                    canvas.width = widthPx;
-                    canvas.height = heightPx;
-                    const ctx = canvas.getContext('2d', { alpha: true });
-                    
-                    // For PNG: keep transparent. For JPG: white background
-                    if (format === 'jpg') {
-                        ctx.fillStyle = 'white';
-                        ctx.fillRect(0, 0, widthPx, heightPx);
-                    } else {
-                        ctx.clearRect(0, 0, widthPx, heightPx);
-                    }
-
-                    // Resize with pica
-                    await pica.resize(sourceCanvas, canvas, {
-                        quality: 3,
-                        alpha: format === 'png',
-                        unsharpAmount: 80,
-                        unsharpRadius: 0.6,
-                        unsharpThreshold: 2
-                    });
-
-                    // Convert to blob
-                    const mimeType = format === 'png' ? 'image/png' : 'image/jpeg';
-                    const blob = await new Promise(resolve => 
-                        canvas.toBlob(resolve, mimeType, quality)
-                    );
-
-                    const fileName = `${originalFileName}_${finalWidth.toFixed(1)}x${finalHeight.toFixed(1)}in_${dpi}dpi_nobg.${format}`;
-                    saveAs(blob, fileName);
-
-                    downloadBtn.textContent = '✅ Downloaded!';
-                    setTimeout(() => {
-                        downloadBtn.textContent = '⬇️ Download Sticker File';
-                        downloadBtn.disabled = false;
-                    }, 2000);
-
-                } catch (error) {
-                    console.error('Error processing image:', error);
-                    alert('Error processing image. Please try again.');
+                downloadBtn.textContent = '✅ Downloaded!';
+                setTimeout(() => {
                     downloadBtn.textContent = '⬇️ Download Sticker File';
                     downloadBtn.disabled = false;
-                }
-            });
+                }, 2000);
 
-            // Reset button
-            resetBtn.addEventListener('click', () => {
-                originalImage = null;
-                processedBlob = null;
-                previewSection.classList.remove('active');
-                fileInput.value = '';
-                progressFill.style.width = '0%';
-            });
+            } catch (error) {
+                console.error('Error processing image:', error);
+                showError('Error processing image: ' + error.message);
+                downloadBtn.textContent = '⬇️ Download Sticker File';
+                downloadBtn.disabled = false;
+            }
+        });
+
+        // Reset button
+        resetBtn.addEventListener('click', () => {
+            originalImage = null;
+            processedBlob = null;
+            previewSection.classList.remove('active');
+            fileInput.value = '';
+            progressFill.style.width = '0%';
+            errorBox.classList.remove('active');
+        });
+
+        // Wait for all scripts to load, then initialize
+        window.addEventListener('load', () => {
+            // Give a small delay for UMD script to register
+            setTimeout(init, 500);
         });
     </script>
 </body>
