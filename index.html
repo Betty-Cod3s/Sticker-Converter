@@ -67,6 +67,7 @@
         .upload-zone.disabled {
             opacity: 0.6;
             cursor: wait;
+            pointer-events: none;
         }
 
         .upload-icon {
@@ -351,7 +352,7 @@
         <p class="subtitle">Convert images to print-ready sticker files with automatic background removal</p>
 
         <!-- Upload Zone -->
-        <div class="upload-zone disabled" id="uploadZone">
+        <div class="upload-zone" id="uploadZone">
             <div class="upload-icon">📁</div>
             <div class="upload-text">Drop image here or click to browse</div>
             <div class="upload-hint">Supports JPG, PNG, WEBP, GIF</div>
@@ -366,7 +367,7 @@
 
         <!-- Loading Note -->
         <div class="loading-note" id="loadingNote">
-            ⏳ <strong>First-time setup:</strong> Loading AI background removal model (this happens once, ~50MB download). Future uses will be instant!
+            ⏳ <strong>First-time setup:</strong> Loading AI background removal model (this happens once, ~30MB download). Future uses will be instant!
         </div>
 
         <!-- Progress Bar -->
@@ -450,17 +451,15 @@
     <script src="https://cdn.jsdelivr.net/npm/pica@9/dist/pica.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/file-saver@2/dist/FileSaver.min.js"></script>
     
-    <!-- Use the UMD build of background-removal instead of ESM -->
-    <script src="https://unpkg.com/@imgly/background-removal@1.4.5/dist/index.umd.js"></script>
+    <!-- Main App using rembg-web -->
+    <script type="module">
+        import { remove } from 'https://unpkg.com/@bunnio/rembg-web@latest/dist/index.js';
 
-    <script>
         // Global variables
         let originalImage = null;
         let processedBlob = null;
         let originalFileName = '';
         let pica = null;
-        let libraryReady = false;
-        let removeBackground = null;
 
         // DOM elements
         const uploadZone = document.getElementById('uploadZone');
@@ -471,7 +470,7 @@
         const dpiSelect = document.getElementById('dpi');
         const formatSelect = document.getElementById('format');
         const qualitySlider = document.getElementById('quality');
-        const qualityValue = document.getElementById('qualityValue');
+        const qualityValueEl = document.getElementById('qualityValue');
         const addBleedCheck = document.getElementById('addBleed');
         const finalDimensions = document.getElementById('finalDimensions');
         const pixelDimensions = document.getElementById('pixelDimensions');
@@ -489,28 +488,9 @@
             console.log('Initializing...');
             
             try {
-                // Check for pica
-                if (typeof window.pica === 'function') {
-                    pica = window.pica();
-                    console.log('Pica loaded');
-                } else {
-                    throw new Error('Pica library not loaded');
-                }
+                pica = window.pica();
+                console.log('Pica loaded');
 
-                // Check for background removal - the UMD build exposes it as imglyRemoveBackground
-                if (typeof window.imglyRemoveBackground === 'function') {
-                    removeBackground = window.imglyRemoveBackground;
-                    console.log('Background removal library loaded');
-                } else {
-                    throw new Error('Background removal library not loaded');
-                }
-
-                // Check for FileSaver
-                if (typeof window.saveAs !== 'function') {
-                    throw new Error('FileSaver library not loaded');
-                }
-
-                libraryReady = true;
                 libStatus.textContent = '✅ AI library ready';
                 libStatus.className = 'lib-status ready';
                 uploadZone.classList.remove('disabled');
@@ -520,7 +500,7 @@
                 console.error('Error initializing:', error);
                 libStatus.textContent = '❌ Error loading libraries: ' + error.message;
                 libStatus.className = 'lib-status error';
-                showError('Error loading libraries. Please refresh the page. Details: ' + error.message);
+                showError('Error loading libraries. Please refresh the page.');
             }
         }
 
@@ -531,20 +511,14 @@
         }
 
         // Upload zone click
-        uploadZone.addEventListener('click', (e) => {
-            if (!libraryReady) {
-                showError('Please wait for the AI library to finish loading.');
-                return;
-            }
+        uploadZone.addEventListener('click', () => {
             fileInput.click();
         });
 
         // Drag and drop
         uploadZone.addEventListener('dragover', (e) => {
             e.preventDefault();
-            if (libraryReady) {
-                uploadZone.classList.add('dragover');
-            }
+            uploadZone.classList.add('dragover');
         });
 
         uploadZone.addEventListener('dragleave', () => {
@@ -554,11 +528,6 @@
         uploadZone.addEventListener('drop', (e) => {
             e.preventDefault();
             uploadZone.classList.remove('dragover');
-            
-            if (!libraryReady) {
-                showError('Please wait for the AI library to finish loading.');
-                return;
-            }
             
             const file = e.dataTransfer.files[0];
             if (file && file.type.startsWith('image/')) {
@@ -596,18 +565,18 @@
             progressText.textContent = 'Loading AI model...';
 
             try {
-                // Remove background
                 progressFill.style.width = '30%';
                 progressText.textContent = 'Analyzing image...';
                 
-                console.log('Starting background removal...');
+                console.log('Starting background removal with rembg-web...');
                 
-                const blob = await removeBackground(file, {
-                    progress: (key, current, total) => {
-                        const percent = 30 + (current / total * 50);
+                // Use rembg-web to remove background
+                const blob = await remove(file, {
+                    onProgress: (info) => {
+                        const percent = 30 + (info.progress * 0.6);
                         progressFill.style.width = percent + '%';
-                        progressText.textContent = `Removing background... ${Math.round(percent)}%`;
-                        console.log('Progress:', key, current, total);
+                        progressText.textContent = `${info.step}: ${Math.round(info.progress)}%`;
+                        console.log('Progress:', info);
                     }
                 });
 
@@ -647,13 +616,13 @@
                 progressContainer.classList.remove('active');
                 loadingNote.classList.remove('active');
                 uploadZone.classList.remove('disabled');
-                showError('Error removing background: ' + error.message + '. Please try a different image.');
+                showError('Error removing background: ' + (error.message || error) + '. Please try a different image.');
             }
         }
 
         // Quality slider update
         qualitySlider.addEventListener('input', (e) => {
-            qualityValue.textContent = e.target.value;
+            qualityValueEl.textContent = e.target.value;
         });
 
         // Update dimensions when settings change
@@ -770,11 +739,8 @@
             errorBox.classList.remove('active');
         });
 
-        // Wait for all scripts to load, then initialize
-        window.addEventListener('load', () => {
-            // Give a small delay for UMD script to register
-            setTimeout(init, 500);
-        });
+        // Initialize on load
+        init();
     </script>
 </body>
 </html>
